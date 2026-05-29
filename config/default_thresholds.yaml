@@ -1,0 +1,46 @@
+metadata:
+  version: "0.1.0"
+  name: "Default security camera IQA thresholds"
+
+thresholds:
+  sharpness_laplacian_var:
+    warn_below: 120.0
+    fail_below: 60.0
+  tenengrad:
+    warn_below: 18.0
+    fail_below: 10.0
+  brightness_mean:
+    warn_below: 55.0
+    fail_below: 35.0
+    warn_above: 205.0
+    fail_above: 230.0
+  contrast_std:
+    warn_below: 35.0
+    fail_below: 22.0
+  dynamic_range:
+    warn_below: 90.0
+    fail_below: 55.0
+  noise_estimate:
+    warn_above: 16.0
+    fail_above: 28.0
+  color_cast_score:
+    warn_above: 22.0
+    fail_above: 38.0
+  overexposed_ratio:
+    warn_above: 0.03
+    fail_above: 0.10
+  underexposed_ratio:
+    warn_above: 0.12
+    fail_above: 0.30
+  black_screen:
+    brightness_below: 12.0
+    contrast_below: 8.0
+  white_screen:
+    brightness_above: 245.0
+    contrast_below: 8.0
+  occlusion_dark_block_ratio:
+    warn_above: 0.35
+    fail_above: 0.55
+  stripe_score:
+    warn_above: 0.22
+    fail_above: 0.34
