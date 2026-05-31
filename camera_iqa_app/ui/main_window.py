@@ -26,6 +26,7 @@ from PyQt6.QtWidgets import (
     QWidget,
 )
 
+from camera_iqa.catalog import metric_group_for
 from camera_iqa.config import DEFAULT_CONFIG_PATH, load_config
 from camera_iqa.models import ImageResult
 from camera_iqa.pipeline import list_images
@@ -109,12 +110,12 @@ class MainWindow(QMainWindow):
         self.result_label = QLabel("当前图片：未选择")
         self.result_label.setObjectName("ResultLabel")
         right_layout.addWidget(self.result_label)
-        self.metrics_table = QTableWidget(0, 2)
-        self.metrics_table.setHorizontalHeaderLabels(["指标", "数值"])
+        self.metrics_table = QTableWidget(0, 3)
+        self.metrics_table.setHorizontalHeaderLabels(["类别", "指标", "数值"])
         self.metrics_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         right_layout.addWidget(self.metrics_table, stretch=2)
-        self.defect_table = QTableWidget(0, 3)
-        self.defect_table.setHorizontalHeaderLabels(["缺陷", "等级", "原因"])
+        self.defect_table = QTableWidget(0, 4)
+        self.defect_table.setHorizontalHeaderLabels(["类别", "缺陷", "等级", "原因"])
         self.defect_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
         right_layout.addWidget(self.defect_table, stretch=1)
         content.addWidget(right)
@@ -258,13 +259,15 @@ class MainWindow(QMainWindow):
         self.show_preview(result.overlay_path if self.show_overlay and result.overlay_path else result.path)
         self.metrics_table.setRowCount(len(result.metrics))
         for row, (key, value) in enumerate(result.metrics.items()):
-            self.metrics_table.setItem(row, 0, QTableWidgetItem(key))
-            self.metrics_table.setItem(row, 1, QTableWidgetItem(f"{value:.4f}"))
+            self.metrics_table.setItem(row, 0, QTableWidgetItem(metric_group_for(key)))
+            self.metrics_table.setItem(row, 1, QTableWidgetItem(key))
+            self.metrics_table.setItem(row, 2, QTableWidgetItem(f"{value:.4f}"))
         self.defect_table.setRowCount(len(result.defects))
         for row, defect in enumerate(result.defects):
-            self.defect_table.setItem(row, 0, QTableWidgetItem(defect.label))
-            self.defect_table.setItem(row, 1, QTableWidgetItem(defect.severity))
-            self.defect_table.setItem(row, 2, QTableWidgetItem(defect.reason))
+            self.defect_table.setItem(row, 0, QTableWidgetItem(defect.category))
+            self.defect_table.setItem(row, 1, QTableWidgetItem(defect.label))
+            self.defect_table.setItem(row, 2, QTableWidgetItem(defect.severity))
+            self.defect_table.setItem(row, 3, QTableWidgetItem(defect.reason))
 
     def show_preview(self, path: Path | None) -> None:
         if not path:

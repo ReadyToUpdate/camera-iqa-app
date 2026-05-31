@@ -5,7 +5,7 @@ from pathlib import Path
 from typing import Any
 
 
-SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff"}
+SUPPORTED_EXTENSIONS = {".jpg", ".jpeg", ".png", ".bmp", ".tif", ".tiff", ".webp"}
 
 
 @dataclass(slots=True)
@@ -15,6 +15,7 @@ class Defect:
     severity: str
     reason: str
     evidence: dict[str, float] = field(default_factory=dict)
+    category: str = "客观缺陷"
 
 
 @dataclass(slots=True)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from camera_iqa.catalog import defect_group_for
 from camera_iqa.config import threshold
 from camera_iqa.models import Defect
 
@@ -31,11 +32,11 @@ def detect_defects(metrics: dict[str, float], config: dict[str, Any]) -> tuple[s
 
     black_rule = threshold(config, "black_screen")
     if metrics["brightness_mean"] < float(black_rule.get("brightness_below", 12)) and metrics["contrast_std"] < float(black_rule.get("contrast_below", 8)):
-        defects.append(Defect("black_screen", "黑屏", "fail", "整体亮度和对比度极低", pick(metrics, "brightness_mean", "contrast_std")))
+        defects.append(make_defect("black_screen", "黑屏", "fail", "整体亮度和对比度极低", pick(metrics, "brightness_mean", "contrast_std")))
 
     white_rule = threshold(config, "white_screen")
     if metrics["brightness_mean"] > float(white_rule.get("brightness_above", 245)) and metrics["contrast_std"] < float(white_rule.get("contrast_below", 8)):
-        defects.append(Defect("white_screen", "白屏", "fail", "整体亮度极高且缺少纹理", pick(metrics, "brightness_mean", "contrast_std")))
+        defects.append(make_defect("white_screen", "白屏", "fail", "整体亮度极高且缺少纹理", pick(metrics, "brightness_mean", "contrast_std")))
 
     add_metric_defect(defects, metrics, config, "sharpness_laplacian_var", "blur", "模糊", "清晰度指标低于阈值")
     add_metric_defect(defects, metrics, config, "brightness_mean", "exposure_abnormal", "曝光异常", "平均亮度超出阈值范围")
@@ -74,7 +75,11 @@ def add_metric_defect(
     rule = threshold(config, metric_key)
     severity = classify_value(metrics[metric_key], rule)
     if severity != "pass":
-        defects.append(Defect(code, label, severity, reason, {metric_key: metrics[metric_key]}))
+        defects.append(make_defect(code, label, severity, reason, {metric_key: metrics[metric_key]}))
+
+
+def make_defect(code: str, label: str, severity: str, reason: str, evidence: dict[str, float]) -> Defect:
+    return Defect(code, label, severity, reason, evidence, defect_group_for(code))
 
 
 def deduplicate_defects(defects: list[Defect]) -> list[Defect]:

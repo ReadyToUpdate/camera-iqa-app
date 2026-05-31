@@ -15,6 +15,7 @@ python3 -m camera_iqa_app
 - 计算清晰度、亮度、曝光、对比度、噪声、色偏等客观指标
 - 判定黑屏、白屏、模糊、过曝、欠曝、低对比度、高噪声、偏色、遮挡疑似、条纹疑似
 - 基于 OpenCV 规则检出暗角、亮角、黑边、低照度条纹、孤立亮点和坏点
+- 指标展示和报告按“客观指标 / 客观缺陷”两类管理
 - PyQt6 单页质检台界面
 - 导出 Excel 报告：Dashboard、Details、Defect Samples、Config
 
