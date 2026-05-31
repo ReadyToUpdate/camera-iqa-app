@@ -46,6 +46,12 @@ def detect_defects(metrics: dict[str, float], config: dict[str, Any]) -> tuple[s
     add_metric_defect(defects, metrics, config, "underexposed_ratio", "under_exposure", "欠曝", "暗部像素比例高于阈值")
     add_metric_defect(defects, metrics, config, "occlusion_dark_block_ratio", "occlusion_suspected", "遮挡疑似", "大面积低亮低纹理区域高于阈值")
     add_metric_defect(defects, metrics, config, "stripe_score", "stripe_suspected", "条纹疑似", "行/列均值突变比例高于阈值")
+    add_metric_defect(defects, metrics, config, "dark_corner_score", "dark_corner", "暗角", "四角亮度明显低于中心区域")
+    add_metric_defect(defects, metrics, config, "bright_corner_score", "bright_corner", "亮角", "四角亮度明显高于中心区域")
+    add_metric_defect(defects, metrics, config, "black_border_ratio", "black_border", "黑边", "图像边缘存在近黑条带")
+    add_metric_defect(defects, metrics, config, "low_light_stripe_score", "low_light_stripe", "低照度条纹", "低照度画面存在行/列方向周期性条纹")
+    add_metric_defect(defects, metrics, config, "hot_pixel_ratio", "hot_pixel", "亮点", "存在孤立异常亮点")
+    add_metric_defect(defects, metrics, config, "dead_pixel_ratio", "dead_pixel", "坏点", "存在孤立异常暗点")
 
     severity = "pass"
     for defect in defects:
@@ -63,6 +69,8 @@ def add_metric_defect(
     label: str,
     reason: str,
 ) -> None:
+    if metric_key not in metrics:
+        return
     rule = threshold(config, metric_key)
     severity = classify_value(metrics[metric_key], rule)
     if severity != "pass":

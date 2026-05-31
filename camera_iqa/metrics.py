@@ -37,6 +37,10 @@ def calculate_metrics(image: np.ndarray) -> dict[str, float]:
     color_cast = float(max(abs(np.mean(r) - np.mean(g)), abs(np.mean(b) - np.mean(g)), abs(np.mean(r) - np.mean(b))))
     dark_block_ratio = estimate_dark_block_ratio(gray_f)
     stripe_score = estimate_stripe_score(gray_f)
+    dark_corner_score, bright_corner_score = estimate_corner_abnormality(gray_f)
+    black_border_ratio = estimate_black_border_ratio(gray_f)
+    low_light_stripe_score = estimate_low_light_stripe_score(gray_f)
+    hot_pixel_ratio, dead_pixel_ratio = estimate_defective_pixel_ratios(gray)
 
     return {
         "sharpness_laplacian_var": float(np.var(laplacian)),
@@ -50,6 +54,12 @@ def calculate_metrics(image: np.ndarray) -> dict[str, float]:
         "underexposed_ratio": underexposed,
         "occlusion_dark_block_ratio": dark_block_ratio,
         "stripe_score": stripe_score,
+        "dark_corner_score": dark_corner_score,
+        "bright_corner_score": bright_corner_score,
+        "black_border_ratio": black_border_ratio,
+        "low_light_stripe_score": low_light_stripe_score,
+        "hot_pixel_ratio": hot_pixel_ratio,
+        "dead_pixel_ratio": dead_pixel_ratio,
     }
 
 
@@ -84,6 +94,63 @@ def estimate_stripe_score(gray_f: np.ndarray) -> float:
     row_diff = np.mean(np.abs(np.diff(row_means))) / (np.std(gray_f) + 1.0)
     col_diff = np.mean(np.abs(np.diff(col_means))) / (np.std(gray_f) + 1.0)
     return float(max(row_diff, col_diff))
+
+
+def estimate_corner_abnormality(gray_f: np.ndarray) -> tuple[float, float]:
+    h, w = gray_f.shape
+    patch_h = max(8, h // 5)
+    patch_w = max(8, w // 5)
+    center_h = max(8, h // 4)
+    center_w = max(8, w // 4)
+    y0 = (h - center_h) // 2
+    x0 = (w - center_w) // 2
+
+    corners = np.array(
+        [
+            np.mean(gray_f[:patch_h, :patch_w]),
+            np.mean(gray_f[:patch_h, -patch_w:]),
+            np.mean(gray_f[-patch_h:, :patch_w]),
+            np.mean(gray_f[-patch_h:, -patch_w:]),
+        ],
+        dtype=np.float32,
+    )
+    center = float(np.mean(gray_f[y0 : y0 + center_h, x0 : x0 + center_w]))
+    corner_reference = float(np.median(corners))
+    denominator = max(center, 1.0)
+    dark_score = max(0.0, (center - corner_reference) / denominator)
+    bright_score = max(0.0, (corner_reference - center) / denominator)
+    return float(dark_score), float(bright_score)
+
+
+def estimate_black_border_ratio(gray_f: np.ndarray) -> float:
+    h, w = gray_f.shape
+    strip = max(4, min(h, w) // 18)
+    edge_mask = np.zeros((h, w), dtype=bool)
+    edge_mask[:strip, :] = True
+    edge_mask[-strip:, :] = True
+    edge_mask[:, :strip] = True
+    edge_mask[:, -strip:] = True
+
+    edge_values = gray_f[edge_mask]
+    if edge_values.size == 0:
+        return 0.0
+    dark_edge = edge_values < 18
+    return float(np.count_nonzero(dark_edge) / (h * w))
+
+
+def estimate_low_light_stripe_score(gray_f: np.ndarray) -> float:
+    if float(np.mean(gray_f)) > 75:
+        return 0.0
+    return estimate_stripe_score(gray_f)
+
+
+def estimate_defective_pixel_ratios(gray: np.ndarray) -> tuple[float, float]:
+    median = cv2.medianBlur(gray, 5)
+    delta = gray.astype(np.int16) - median.astype(np.int16)
+    hot = (gray >= 245) & (delta >= 80)
+    dead = (gray <= 10) & (delta <= -80)
+    total = gray.size
+    return float(np.count_nonzero(hot) / total), float(np.count_nonzero(dead) / total)
 
 
 def make_overlay(image: np.ndarray, metrics: dict[str, float]) -> np.ndarray:

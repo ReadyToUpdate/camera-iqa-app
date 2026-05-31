@@ -44,3 +44,21 @@ thresholds:
   stripe_score:
     warn_above: 0.22
     fail_above: 0.34
+  dark_corner_score:
+    warn_above: 0.22
+    fail_above: 0.38
+  bright_corner_score:
+    warn_above: 0.22
+    fail_above: 0.38
+  black_border_ratio:
+    warn_above: 0.06
+    fail_above: 0.12
+  low_light_stripe_score:
+    warn_above: 0.18
+    fail_above: 0.30
+  hot_pixel_ratio:
+    warn_above: 0.00005
+    fail_above: 0.00012
+  dead_pixel_ratio:
+    warn_above: 0.00005
+    fail_above: 0.00012
