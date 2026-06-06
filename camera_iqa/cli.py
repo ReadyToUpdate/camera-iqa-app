@@ -14,6 +14,7 @@ from camera_iqa.ite_resolution import (
 )
 from camera_iqa.metrics import read_image
 from camera_iqa.pipeline import default_overlay_dir, list_images, process_image
+from camera_iqa.stripe_fov import analyze_stripe_fov_folder, read_distance_csv, write_stripe_fov_csv, write_stripe_fov_excel
 
 
 def parse_roi(value: str) -> ResolutionROI:
@@ -47,6 +48,13 @@ def main() -> None:
     ite_lines_parser.add_argument("--input", required=True, help="Input folder with illumination sequence images")
     ite_lines_parser.add_argument("--roi", required=True, help="ROI calibration JSON from ite-calibrate")
     ite_lines_parser.add_argument("--output", required=True, help="Output CSV file")
+    stripe_fov_parser = subparsers.add_parser("stripe-fov")
+    stripe_fov_parser.add_argument("--input", required=True, help="Input folder with zoom test images")
+    stripe_fov_parser.add_argument("--distances", required=True, help="CSV with image,distance_m columns")
+    stripe_fov_parser.add_argument("--output", default=None, help="Optional output CSV file")
+    stripe_fov_parser.add_argument("--excel-output", default=None, help="Optional output Excel file")
+    stripe_fov_parser.add_argument("--physical-black-width-cm", type=float, default=1.0, help="Physical black stripe width in cm")
+    stripe_fov_parser.add_argument("--annotated-dir", default=None, help="Optional folder for annotated images")
     args = parser.parse_args()
 
     if args.command == "run":
@@ -84,6 +92,22 @@ def main() -> None:
         rows = analyze_ite_resolution_folder(args.input, calibration)
         write_ite_resolution_csv(rows, args.output)
         print(f"ITE线数结果: {args.output}")
+        print(f"处理图片数: {len(rows)}")
+    elif args.command == "stripe-fov":
+        if args.output is None and args.excel_output is None:
+            parser.error("stripe-fov requires --output and/or --excel-output")
+        rows = analyze_stripe_fov_folder(
+            args.input,
+            distances=read_distance_csv(args.distances),
+            physical_black_width_m=args.physical_black_width_cm / 100.0,
+            annotation_dir=args.annotated_dir,
+        )
+        if args.output is not None:
+            write_stripe_fov_csv(rows, args.output)
+            print(f"条纹视场角CSV结果: {args.output}")
+        if args.excel_output is not None:
+            write_stripe_fov_excel(rows, args.excel_output)
+            print(f"条纹视场角Excel结果: {args.excel_output}")
         print(f"处理图片数: {len(rows)}")
 
 

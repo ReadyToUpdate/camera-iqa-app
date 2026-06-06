@@ -28,3 +28,25 @@ python3 -m camera_iqa_app
 ```bash
 python3 -m camera_iqa.cli run --input ./images --output report.xlsx
 ```
+
+## 变倍条纹视场角
+
+准备一组黑白竖条测试图，文件名中包含倍率，例如 `zoom_1.0.jpg`、`zoom_1.1.jpg`、`camera-2.5x.png`。再准备距离表 `distances.csv`：
+
+```csv
+image,distance_m
+zoom_1.0.jpg,5.0
+zoom_1.1.jpg,5.2
+camera-2.5x.png,8.0
+```
+
+运行：
+
+```bash
+python3 -m camera_iqa.cli stripe-fov \
+  --input ./zoom_images \
+  --distances ./distances.csv \
+  --excel-output ./stripe_fov.xlsx \
+  --physical-black-width-cm 1 \
+  --annotated-dir ./stripe_annotations
+```
