@@ -6,8 +6,12 @@ from pathlib import Path
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QAction, QColor, QPixmap
 from PyQt6.QtWidgets import (
+    QComboBox,
+    QDoubleSpinBox,
     QFileDialog,
+    QFormLayout,
     QFrame,
+    QGroupBox,
     QHBoxLayout,
     QHeaderView,
     QLabel,
@@ -28,6 +32,7 @@ from PyQt6.QtWidgets import (
 
 from camera_iqa.catalog import metric_group_for
 from camera_iqa.config import DEFAULT_CONFIG_PATH, load_config
+from camera_iqa.detectors import detect_defects
 from camera_iqa.models import ImageResult
 from camera_iqa.pipeline import list_images
 from camera_iqa.report_excel import export_excel
@@ -45,6 +50,7 @@ class MainWindow(QMainWindow):
         self.results: dict[Path, ImageResult] = {}
         self.worker: BatchWorker | None = None
         self.show_overlay = False
+        self._syncing_tune_controls = False
 
         self.setup_actions()
         self.setup_ui()
@@ -132,12 +138,55 @@ class MainWindow(QMainWindow):
         bottom_left_layout.addWidget(self.progress)
         self.stats_label = QLabel("通过率：-    缺陷分布：-")
         bottom_left_layout.addWidget(self.stats_label)
+        bottom_left_layout.addWidget(self.create_tuning_panel())
         bottom.addWidget(bottom_left)
         bottom.addWidget(self.wrap_panel("日志", self.log_view))
         bottom.setSizes([500, 700])
         root_layout.addWidget(bottom)
 
         self.setCentralWidget(root)
+        self.refresh_tune_metric_options()
+
+    def create_tuning_panel(self) -> QWidget:
+        group = QGroupBox("单指标调优")
+        layout = QVBoxLayout(group)
+
+        form = QFormLayout()
+        self.tune_metric_combo = QComboBox()
+        self.tune_metric_combo.currentTextChanged.connect(self.on_tune_metric_changed)
+        form.addRow("指标", self.tune_metric_combo)
+
+        self.tune_direction_combo = QComboBox()
+        self.tune_direction_combo.currentTextChanged.connect(self.on_tune_direction_changed)
+        form.addRow("方向", self.tune_direction_combo)
+
+        self.warn_spin = QDoubleSpinBox()
+        self.warn_spin.setDecimals(6)
+        self.warn_spin.setRange(-1_000_000.0, 1_000_000.0)
+        self.warn_spin.setSingleStep(1.0)
+        form.addRow("warn 阈值", self.warn_spin)
+
+        self.fail_spin = QDoubleSpinBox()
+        self.fail_spin.setDecimals(6)
+        self.fail_spin.setRange(-1_000_000.0, 1_000_000.0)
+        self.fail_spin.setSingleStep(1.0)
+        form.addRow("fail 阈值", self.fail_spin)
+        layout.addLayout(form)
+
+        button_row = QHBoxLayout()
+        self.apply_tune_button = QPushButton("应用到当前结果")
+        self.apply_tune_button.clicked.connect(self.apply_tuning)
+        button_row.addWidget(self.apply_tune_button)
+
+        self.save_config_button = QPushButton("保存阈值配置")
+        self.save_config_button.clicked.connect(self.save_tuned_config)
+        button_row.addWidget(self.save_config_button)
+        layout.addLayout(button_row)
+
+        self.tune_stats_label = QLabel("先运行测试，再调单个指标。")
+        self.tune_stats_label.setWordWrap(True)
+        layout.addWidget(self.tune_stats_label)
+        return group
 
     def wrap_panel(self, title: str, widget: QWidget) -> QWidget:
         panel = QWidget()
@@ -166,6 +215,8 @@ class MainWindow(QMainWindow):
             QProgressBar::chunk { background: #2f80ed; border-radius: 4px; }
             QPushButton { padding: 8px 10px; border: 1px solid #cfd7e3; border-radius: 5px; background: white; }
             QPushButton:hover { background: #eef4ff; }
+            QGroupBox { font-weight: 700; color: #1f2933; border: 1px solid #d7dde5; border-radius: 6px; margin-top: 8px; padding: 8px; background: white; }
+            QGroupBox::title { subcontrol-origin: margin; left: 8px; padding: 0 4px; }
             """
         )
 
@@ -184,6 +235,7 @@ class MainWindow(QMainWindow):
         self.export_action.setEnabled(False)
         self.log(f"已载入图片文件夹：{self.input_folder}")
         self.update_stats()
+        self.refresh_tuning_stats()
 
     def choose_config(self) -> None:
         path, _ = QFileDialog.getOpenFileName(self, "选择阈值配置", str(DEFAULT_CONFIG_PATH.parent), "YAML (*.yaml *.yml)")
@@ -192,6 +244,9 @@ class MainWindow(QMainWindow):
         try:
             self.config_path = Path(path)
             self.config = load_config(self.config_path)
+            self.refresh_tune_metric_options()
+            self.refresh_tune_controls()
+            self.refresh_tuning_stats()
             self.log(f"已加载配置：{self.config_path}")
         except Exception as exc:
             QMessageBox.critical(self, "配置读取失败", str(exc))
@@ -221,12 +276,10 @@ class MainWindow(QMainWindow):
     def on_result_ready(self, result: ImageResult, index: int, total: int) -> None:
         self.results[result.path] = result
         row = self.image_paths.index(result.path)
-        prefix = result.severity.upper() if result.status == "done" else "ERROR"
-        defects = result.defect_codes or "通过"
-        self.file_list.item(row).setText(f"[{prefix}] {result.path.name}  {defects}")
-        self.color_item(self.file_list.item(row), result.severity)
+        self.refresh_file_list_item(row, result)
         self.progress.setValue(round(index / total * 100))
         self.update_stats()
+        self.refresh_tuning_stats()
         if self.file_list.currentRow() < 0:
             self.file_list.setCurrentRow(row)
         elif self.file_list.currentRow() == row:
@@ -237,6 +290,7 @@ class MainWindow(QMainWindow):
         self.stop_action.setEnabled(False)
         self.export_action.setEnabled(bool(self.results))
         self.log("检测停止" if stopped else "检测完成")
+        self.refresh_tuning_stats()
 
     def on_current_item_changed(self, current: QListWidgetItem | None) -> None:
         if current is None:
@@ -311,6 +365,167 @@ class MainWindow(QMainWindow):
         counter = Counter(defect.code for result in self.results.values() for defect in result.defects)
         distribution = "，".join(f"{code}:{count}" for code, count in counter.most_common()) or "无"
         self.stats_label.setText(f"通过率：{passed / total * 100:.1f}%    缺陷分布：{distribution}")
+
+    def refresh_file_list_item(self, row: int, result: ImageResult) -> None:
+        item = self.file_list.item(row)
+        if item is None:
+            return
+        prefix = result.severity.upper() if result.status == "done" else "ERROR"
+        defects = result.defect_codes or "通过"
+        item.setText(f"[{prefix}] {result.path.name}  {defects}")
+        self.color_item(item, result.severity)
+
+    def refresh_tune_metric_options(self) -> None:
+        if not hasattr(self, "tune_metric_combo"):
+            return
+        current = self.tune_metric_combo.currentData()
+        self._syncing_tune_controls = True
+        self.tune_metric_combo.clear()
+        for metric, rule in self.config.get("thresholds", {}).items():
+            if self.rule_direction_pairs(rule):
+                self.tune_metric_combo.addItem(f"{metric_group_for(metric)} / {metric}", metric)
+        if current:
+            index = self.tune_metric_combo.findData(current)
+            if index >= 0:
+                self.tune_metric_combo.setCurrentIndex(index)
+        self._syncing_tune_controls = False
+        self.refresh_tune_controls()
+
+    def on_tune_metric_changed(self, *_args) -> None:
+        if self._syncing_tune_controls:
+            return
+        self.refresh_tune_controls()
+        self.refresh_tuning_stats()
+
+    def on_tune_direction_changed(self, *_args) -> None:
+        if self._syncing_tune_controls:
+            return
+        self.refresh_tune_values()
+        self.refresh_tuning_stats()
+
+    def refresh_tune_controls(self) -> None:
+        metric = self.current_tune_metric()
+        if not metric:
+            return
+        rule = self.config.get("thresholds", {}).get(metric, {})
+        pairs = self.rule_direction_pairs(rule)
+        current = self.tune_direction_combo.currentData()
+        self._syncing_tune_controls = True
+        self.tune_direction_combo.clear()
+        for label, warn_key, fail_key in pairs:
+            self.tune_direction_combo.addItem(label, (warn_key, fail_key))
+        if current:
+            index = self.tune_direction_combo.findData(current)
+            if index >= 0:
+                self.tune_direction_combo.setCurrentIndex(index)
+        self._syncing_tune_controls = False
+        self.refresh_tune_values()
+
+    def refresh_tune_values(self) -> None:
+        metric = self.current_tune_metric()
+        keys = self.current_tune_rule_keys()
+        if not metric or not keys:
+            return
+        rule = self.config.get("thresholds", {}).get(metric, {})
+        warn_key, fail_key = keys
+        self._syncing_tune_controls = True
+        self.warn_spin.setValue(float(rule.get(warn_key, 0.0)))
+        self.fail_spin.setValue(float(rule.get(fail_key, 0.0)))
+        self._syncing_tune_controls = False
+
+    def apply_tuning(self) -> None:
+        metric = self.current_tune_metric()
+        keys = self.current_tune_rule_keys()
+        if not metric or not keys:
+            QMessageBox.information(self, "无法调优", "当前配置没有可调的 warn/fail 阈值。")
+            return
+        warn_key, fail_key = keys
+        rule = self.config.setdefault("thresholds", {}).setdefault(metric, {})
+        rule[warn_key] = float(self.warn_spin.value())
+        rule[fail_key] = float(self.fail_spin.value())
+        self.reevaluate_results()
+        self.log(f"已应用阈值：{metric} {warn_key}={rule[warn_key]:.6g}, {fail_key}={rule[fail_key]:.6g}")
+
+    def reevaluate_results(self) -> None:
+        for row, path in enumerate(self.image_paths):
+            result = self.results.get(path)
+            if not result or result.status != "done":
+                continue
+            verdict, severity, defects = detect_defects(result.metrics, self.config)
+            result.verdict = verdict
+            result.severity = severity
+            result.defects = defects
+            self.refresh_file_list_item(row, result)
+        self.update_stats()
+        self.refresh_tuning_stats()
+        current = self.file_list.currentItem()
+        if current:
+            self.on_current_item_changed(current)
+
+    def refresh_tuning_stats(self) -> None:
+        if not hasattr(self, "tune_stats_label"):
+            return
+        metric = self.current_tune_metric()
+        if not metric:
+            self.tune_stats_label.setText("当前配置没有可调指标。")
+            return
+        values = [result.metrics[metric] for result in self.results.values() if result.status == "done" and metric in result.metrics]
+        if not values:
+            self.tune_stats_label.setText("先运行测试，再查看该指标的数值分布。")
+            return
+        warn_count = 0
+        fail_count = 0
+        keys = self.current_tune_rule_keys()
+        rule = self.config.get("thresholds", {}).get(metric, {})
+        if keys:
+            warn_key, fail_key = keys
+            warn_value = float(rule.get(warn_key, 0.0))
+            fail_value = float(rule.get(fail_key, 0.0))
+            if warn_key.endswith("_below"):
+                warn_count = sum(1 for value in values if value < warn_value)
+                fail_count = sum(1 for value in values if value < fail_value)
+            else:
+                warn_count = sum(1 for value in values if value > warn_value)
+                fail_count = sum(1 for value in values if value > fail_value)
+        avg = sum(values) / len(values)
+        self.tune_stats_label.setText(
+            f"样本数 {len(values)}，最小 {min(values):.4f}，平均 {avg:.4f}，最大 {max(values):.4f}；"
+            f"按当前方向：warn 命中 {warn_count}，fail 命中 {fail_count}"
+        )
+
+    def save_tuned_config(self) -> None:
+        path, _ = QFileDialog.getSaveFileName(self, "保存阈值配置", str(self.config_path or DEFAULT_CONFIG_PATH), "YAML (*.yaml *.yml)")
+        if not path:
+            return
+        try:
+            import yaml
+
+            data = {key: value for key, value in self.config.items() if not key.startswith("_")}
+            with Path(path).open("w", encoding="utf-8") as handle:
+                yaml.safe_dump(data, handle, allow_unicode=True, sort_keys=False)
+            self.config_path = Path(path)
+            self.config["_source_path"] = str(self.config_path)
+            self.log(f"已保存阈值配置：{self.config_path}")
+        except Exception as exc:
+            QMessageBox.critical(self, "保存失败", str(exc))
+
+    def current_tune_metric(self) -> str | None:
+        if not hasattr(self, "tune_metric_combo"):
+            return None
+        return self.tune_metric_combo.currentData()
+
+    def current_tune_rule_keys(self) -> tuple[str, str] | None:
+        if not hasattr(self, "tune_direction_combo"):
+            return None
+        return self.tune_direction_combo.currentData()
+
+    def rule_direction_pairs(self, rule: dict) -> list[tuple[str, str, str]]:
+        pairs: list[tuple[str, str, str]] = []
+        if "warn_below" in rule and "fail_below" in rule:
+            pairs.append(("低于阈值判异常", "warn_below", "fail_below"))
+        if "warn_above" in rule and "fail_above" in rule:
+            pairs.append(("高于阈值判异常", "warn_above", "fail_above"))
+        return pairs
 
     def color_item(self, item: QListWidgetItem, severity: str) -> None:
         if severity == "fail":

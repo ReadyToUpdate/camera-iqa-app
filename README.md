@@ -50,3 +50,28 @@ python3 -m camera_iqa.cli stripe-fov \
   --physical-black-width-cm 1 \
   --annotated-dir ./stripe_annotations
 ```
+
+如果图片按 `1.jpg` 到 `90.jpg` 命名，Excel 会按数字序号排序，并输出序号、水平视场角、图片名、距离、黑条平均像素宽度等字段。也可以同时加 `--output ./stripe_fov.csv` 输出 CSV。视场角按 `水平视场宽度 = 图像宽度 / 黑条像素宽度 * 黑条实际宽度`、`FOV = 2 * atan(水平视场宽度 / (2 * 距离))` 计算。
+
+## 音视频同步测试
+
+生成屏幕播放用的同步测试素材：每轮 1 秒白屏 + 1kHz 蜂鸣，随后 3 秒黑屏 + 静音，循环播放。
+
+```bash
+python3 -m camera_iqa.cli avsync-generate \
+  --video-output ./outputs/avsync_visual.mp4 \
+  --audio-output ./outputs/avsync_tone.wav \
+  --muxed-output ./outputs/avsync_test.mp4 \
+  --duration 20
+```
+
+如果系统没有 `ffmpeg`，会生成独立的 MP4 画面文件和 WAV 音频文件，但不会合成带音频的 MP4。安装 `ffmpeg` 后再次运行同一命令即可得到 `--muxed-output`。
+
+分析摄像机录制结果时，提供录像视频和对应的 16-bit PCM WAV 音频，工具会检测画面亮度阶跃和音频能量阶跃，并输出 `audio-video` 偏移。正值表示音频晚于画面，负值表示音频早于画面。
+
+```bash
+python3 -m camera_iqa.cli avsync-analyze \
+  --video ./recorded_camera.mp4 \
+  --audio ./recorded_camera.wav \
+  --output ./outputs/avsync_result.csv
+```
