@@ -112,6 +112,10 @@ def locate_vertical_stripe_chart(gray: np.ndarray) -> tuple[int, int]:
     y2 = h - y1
     sample = gray[y1:y2, :].astype(np.float32)
     profile = np.mean(sample, axis=0)
+    transition_box = locate_chart_by_transition_cluster(profile, image_width=w)
+    if transition_box is not None:
+        return transition_box
+
     median = float(np.median(profile))
     deviation = np.abs(profile - median)
     threshold = max(12.0, float(np.percentile(deviation, 75)) * 0.55)
@@ -128,6 +132,54 @@ def locate_vertical_stripe_chart(gray: np.ndarray) -> tuple[int, int]:
 
     start, end = max(candidates, key=lambda item: item[1] - item[0])
     return int(start), int(end - start)
+
+
+def locate_chart_by_transition_cluster(profile: np.ndarray, *, image_width: int) -> tuple[int, int] | None:
+    values = np.asarray(profile, dtype=np.float32).reshape(-1)
+    if values.size < 8:
+        return None
+
+    smoothed = cv2.GaussianBlur(values[None, :], (5, 1), 0)[0]
+    threshold, _ = cv2.threshold(smoothed.astype(np.uint8), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    binary = smoothed >= float(threshold)
+    transitions = np.flatnonzero(binary[1:] != binary[:-1]) + 1
+    if transitions.size < 4:
+        return None
+
+    gaps = np.diff(transitions)
+    close_gaps = gaps[gaps <= max(4, image_width // 25)]
+    if close_gaps.size == 0:
+        return None
+    max_transition_gap = max(4, int(np.median(close_gaps) * 1.8))
+
+    clusters: list[np.ndarray] = []
+    start = 0
+    for index, gap in enumerate(gaps, start=1):
+        if gap > max_transition_gap:
+            clusters.append(transitions[start:index])
+            start = index
+    clusters.append(transitions[start:])
+
+    dense_clusters = [cluster for cluster in clusters if cluster.size >= 4]
+    if not dense_clusters:
+        return None
+    cluster = max(dense_clusters, key=lambda item: (item.size, item[-1] - item[0]))
+    cluster_gaps = np.diff(cluster)
+    stripe_width_estimate = int(round(float(np.median(cluster_gaps)))) if cluster_gaps.size else 0
+    if stripe_width_estimate <= 0:
+        return None
+
+    if cluster[0] <= stripe_width_estimate * 1.5:
+        chart_start = max(0, int(cluster[0] - stripe_width_estimate))
+    else:
+        chart_start = int(cluster[0])
+    if image_width - cluster[-1] <= stripe_width_estimate * 1.5:
+        chart_end = min(image_width, int(cluster[-1] + stripe_width_estimate))
+    else:
+        chart_end = int(cluster[-1])
+    if chart_end - chart_start < max(8, image_width // 80):
+        return None
+    return chart_start, chart_end - chart_start
 
 
 def measure_black_stripe_widths(gray: np.ndarray, chart_x: int, chart_width: int) -> list[float]:

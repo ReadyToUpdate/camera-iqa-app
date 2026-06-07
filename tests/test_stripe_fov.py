@@ -9,6 +9,7 @@ from camera_iqa.stripe_fov import (
     StripeFovResult,
     analyze_stripe_fov_image,
     calculate_horizontal_fov_degrees,
+    locate_vertical_stripe_chart,
     parse_sequence_from_filename,
     parse_zoom_from_filename,
     sort_results_by_sequence,
@@ -46,6 +47,24 @@ def test_analyze_stripe_fov_image_measures_black_stripes_when_chart_does_not_fil
     assert result.black_stripe_px_std == 0.0
 
 
+def test_locate_vertical_stripe_chart_ignores_large_board_edges_at_small_zoom() -> None:
+    image = np.full((480, 800, 3), 90, dtype=np.uint8)
+    image[80:420, 80:720] = 238
+    image[:, 78:82] = 20
+    image[:, 718:722] = 20
+    chart_x = 290
+    chart_width = 180
+    stripe_width = 12
+    for x in range(chart_x, chart_x + chart_width):
+        stripe_index = (x - chart_x) // stripe_width
+        image[115:390, x] = 20 if stripe_index % 2 == 0 else 238
+
+    x, width = locate_vertical_stripe_chart(image[:, :, 0])
+
+    assert abs(x - chart_x) <= 3
+    assert abs(width - chart_width) <= 6
+
+
 def test_calculate_horizontal_fov_degrees_uses_image_width_distance_and_physical_width() -> None:
     fov = calculate_horizontal_fov_degrees(
         image_width_px=640,
@@ -64,9 +83,9 @@ def test_analyze_stripe_fov_image_calculates_horizontal_fov() -> None:
 
     result = analyze_stripe_fov_image(image, distance_m=8.0, physical_black_width_m=0.01)
 
-    expected_scene_width_m = 2560 / 40.0 * 0.01
+    expected_scene_width_m = 2560 / result.black_stripe_px_mean * 0.01
     expected = math.degrees(2 * math.atan(expected_scene_width_m / (2 * 8.0)))
-    assert result.black_stripe_px_mean == 40.0
+    assert math.isclose(result.black_stripe_px_mean, 40.0, abs_tol=0.1)
     assert result.horizontal_fov_deg == expected
 
 

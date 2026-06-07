@@ -10,7 +10,20 @@ PROJECT_ROOT = Path(__file__).resolve().parents[1]
 if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
-from camera_iqa.stripe_fov import analyze_stripe_fov_path
+try:
+    from camera_iqa.stripe_fov import analyze_stripe_fov_path
+except ModuleNotFoundError as exc:
+    if exc.name != "camera_iqa":
+        raise
+    print("无法导入 camera_iqa。请在 PyCharm 中检查：")
+    print(f"1. Open 的项目根目录应为: {PROJECT_ROOT}")
+    print("2. Run Configuration 的 Working directory 建议设为项目根目录")
+    print("3. Python Interpreter 应选择本项目虚拟环境，例如 .venv/bin/python")
+    print(f"当前 Python: {sys.executable}")
+    print("当前 sys.path 前几项:")
+    for item in sys.path[:5]:
+        print(f"  - {item}")
+    raise
 
 
 # PyCharm 调试时可以直接改这里，然后点 Run/Debug。
